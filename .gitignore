@@ -1,0 +1,8 @@
+# Ignore the comfyui directory
+comfyui/
+
+# Ignore the venv directory (often used for Python virtual environments)
+venv/
+
+# Ignore a specific file
+workflows/juggernautXL_test.json
