@@ -1,36 +1,24 @@
-from fastapi import FastAPI
-from pydantic import BaseModel
-from fastapi.responses import JSONResponse
-import json
-import requests
-import time
-import os
-import base64
-import uuid
+import os, json, time, uuid, base64, requests
 
-COMFYUI_API = "http://192.168.68.135:8188/prompt"
-COMFYUI_HISTORY = "http://192.168.68.135:8188/history"
-WORKFLOW_FILE = "workflows/juggernautXL.json"
-OUTPUT_DIR = "outputs"
+# Config
+COMFYUI_API = "http://192.168.1.82:8188/prompt"
+COMFYUI_HISTORY = "http://192.168.1.82:8188/history"
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+WORKFLOW_FILE = os.path.join(BASE_DIR, "..", "workflows", "juggernautXL.json")
+WORKFLOW_FILE = os.path.abspath(WORKFLOW_FILE)
+
+OUTPUT_DIR = os.path.join(BASE_DIR, "..", "outputs")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-app = FastAPI()
 
-class PromptRequest(BaseModel):
-    prompt: str
-    negative_prompt: str = "low quality, blurry, bad anatomy"
-
-
-# --- Workflow helpers --   
+# --- Workflow helpers ---
 def load_and_update_workflow(path, positive_prompt, negative_prompt):
     """Load workflow JSON and update prompt text nodes."""
     with open(path, "r") as f:
         workflow = json.load(f)
 
-    # Node 2 = positive prompt
     workflow["2"]["inputs"]["text"] = positive_prompt
-    # Node 3 = negative prompt
     workflow["3"]["inputs"]["text"] = negative_prompt
 
     return workflow
@@ -68,7 +56,7 @@ def wait_for_result(prompt_id: str, timeout: int = 120):
                     img_type = img_info.get("type", "output")
 
                     url = (
-                        f"http://192.168.68.135:8188/view"
+                        f"http://192.168.1.82:8188/view"
                         f"?filename={filename}&subfolder={subfolder}&type={img_type}"
                     )
                     resp = requests.get(url)
@@ -81,26 +69,8 @@ def wait_for_result(prompt_id: str, timeout: int = 120):
                     with open(filepath, "wb") as f:
                         f.write(resp.content)
 
-                    return b64_image, filepath
+                    return b64_image, filepath, filename_local
 
         time.sleep(1)
 
     raise TimeoutError("Timed out waiting for ComfyUI result.")
-
-@app.post("/generate")
-def generate(request: PromptRequest):
-    workflow = load_and_update_workflow(WORKFLOW_FILE, request.prompt, request.negative_prompt)
-
-    response = send_to_comfyui(workflow)
-    prompt_id = response.get("prompt_id")
-
-    try:
-        b64_image, filepath = wait_for_result(prompt_id)
-    except TimeoutError as e:
-        return JSONResponse(content={"error": str(e)}, status_code=504)
-
-    return JSONResponse(content={
-        "prompt_id": prompt_id,
-        "file_path": filepath,
-        "image_base64": b64_image
-    })
